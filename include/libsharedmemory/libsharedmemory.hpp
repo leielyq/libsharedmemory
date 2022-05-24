@@ -10,7 +10,6 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
-#include <unistd.h>
 #include <iostream>
 #include <cstddef> // nullptr_t, ptrdiff_t, std::size_t
 
@@ -91,7 +90,7 @@ Memory::Memory(const std::string path, const std::size_t size, const bool persis
 Error Memory::createOrOpen(const bool create) {
     if (create) {
         DWORD size_high_order = 0;
-        DWORD size_low_order = static_cast<DWORD>(size_);
+        DWORD size_low_order = 1024*1024;
 
         _handle = CreateFileMappingA(INVALID_HANDLE_VALUE,  // use paging file
                                         NULL,                  // default security
