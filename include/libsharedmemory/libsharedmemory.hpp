@@ -103,7 +103,7 @@ Error Memory::createOrOpen(const bool create) {
             return kErrorCreationFailed;
         }
     } else {
-      _handle = OpenFileMappingA(FILE_MAP_READ, // read access
+      _handle = OpenFileMappingA(FILE_MAP_ALL_ACCESS, // read access
                                  FALSE,         // do not inherit the name
                                  _path.c_str()  // name of mapping object
       );
@@ -246,14 +246,14 @@ inline Memory::~Memory() {
 
 class SharedMemoryReadStream {
 public:
+	bool Check;
+	Error err;
 
-    SharedMemoryReadStream(const std::string name, const std::size_t bufferSize, const bool isPersistent): 
-        _memory(name, bufferSize, isPersistent) {
-
-        if (_memory.open() != kOK) {
-            throw "Shared memory segment could not be opened.";
-        }
-    }
+	SharedMemoryReadStream(const std::string name, const std::size_t bufferSize, const bool isPersistent) :
+		_memory(name, bufferSize, isPersistent) {
+		err = _memory.create();
+		Check = _memory.create() == kOK;
+	}
 
     inline char readFlags() {
       char* memory = (char*) _memory.data();
@@ -370,13 +370,13 @@ private:
 
 class SharedMemoryWriteStream {
 public:
+	bool Check;
+	Error err;
 
     SharedMemoryWriteStream(const std::string name, const std::size_t bufferSize, const bool isPersistent): 
         _memory(name, bufferSize, isPersistent) {
-
-        if (_memory.create() != kOK) {
-            throw "Shared memory segment could not be created.";
-        }
+		err = _memory.create();
+		Check = _memory.create() == kOK;
     }
 
     inline void close() {
@@ -459,3 +459,132 @@ private:
 }; // namespace lsm
 
 #endif // INCLUDE_LIBSHAREDMEMORY_HPP_
+
+
+namespace pait {
+	// 共享内存的名称在操作系统范围内公布 
+	// 大小以字节为单位，并且必须足够大以处理数据（最多 4GiB） 
+	// 如果禁用持久性，则共享内存段将 
+	// 成为垃圾当编写它的进程被杀死时收集
+	bool SharedMemoryWriteString(std::string name, std::string context, size_t size = 65535, bool persistent = true) {
+
+
+		try
+		{
+			lsm::SharedMemoryWriteStream write${/*name*/ name, /*size*/size, /*persistent*/ persistent };
+
+			if (!write$.Check) {
+				std::cout << name << " UTF8 string written err code : " << write$.err << std::endl;
+				return false;
+			}
+			// writing the string to the shared memory
+			write$.write(context);
+
+			std::cout << name << " UTF8 string written : " << context << std::endl;
+
+			return true;
+		}
+		catch (const std::exception&)
+		{
+			std::cout << name << " UTF8 string  written failed! " << std::endl;
+			return false;
+		}
+
+
+	}
+
+	// 从共享内存中读取字符串 
+	// 你可以在另一个进程、线程中运行它， 
+	// 甚至在另一个用另一种编程语言编写的应用程序中
+	bool SharedMemoryReadString(std::string name, std::string& context, size_t size = 65535, bool persistent = true) {
+
+		try
+		{
+			lsm::SharedMemoryReadStream read${/*name*/ name, /*size*/ size, /*persistent*/ persistent };
+
+			if (!read$.Check) {
+				std::cout << name << " UTF8 string written err code : " << read$.err << std::endl;
+				return false;
+			}
+			context = read$.readString();
+
+			std::cout << name << " UTF8 string read : " << context << std::endl;
+
+			return true;
+		}
+		catch (const std::exception&)
+		{
+			//std::cout << name << " UTF8 string  read failed! " << std::endl;
+			return false;
+		}
+
+
+
+	}
+
+
+	//编码测试  空方法
+	void test() {
+		/*float numbers[72] = {
+		1.3f, 3.4f, 3.14f, 1.3f, 3.4f, 3.14f, 1.3f, 3.4f, 3.14f, 1.3f, 3.4f, 3.14f,
+		1.3f, 3.4f, 3.14f, 1.3f, 3.4f, 3.14f, 1.3f, 3.4f, 3.14f, 1.3f, 3.4f, 3.14f,
+		1.3f, 3.4f, 3.14f, 1.3f, 3.4f, 3.14f, 1.3f, 3.4f, 3.14f, 1.3f, 3.4f, 3.14f,
+		1.3f, 3.4f, 3.14f, 1.3f, 3.4f, 3.14f, 1.3f, 3.4f, 3.14f, 1.3f, 3.4f, 3.14f,
+		1.3f, 3.4f, 3.14f, 1.3f, 3.4f, 3.14f, 1.3f, 3.4f, 3.14f, 1.3f, 3.4f, 3.14f,
+		1.3f, 3.4f, 3.14f, 1.3f, 3.4f, 3.14f, 1.3f, 3.4f, 3.14f, 1.3f, 3.4f, 6.14f,
+		};
+
+		SharedMemoryWriteStream write${ "numberPipe", 65535, true };
+		SharedMemoryReadStream read${ "numberPipe", 65535, true };
+
+		write$.write(numbers, 72);
+
+		EXPECT(read$.readLength(kMemoryTypeFloat) == 72);
+
+		char flagsData = read$.readFlags();
+		std::bitset<8> flags(flagsData);
+
+		std::cout
+		<< "Flags for float* read: 0b"
+		<< flags << std::endl;
+		EXPECT(!!(flagsData & kMemoryTypeFloat));
+		EXPECT(!!(flagsData & kMemoryChanged));
+
+		float* numbersReadPtr = read$.readFloatArray();
+
+		EXPECT(numbers[0] == numbersReadPtr[0]);
+		EXPECT(numbers[1] == numbersReadPtr[1]);
+		EXPECT(numbers[2] == numbersReadPtr[2]);
+		EXPECT(numbers[3] == numbersReadPtr[3]);
+		EXPECT(numbers[71] == numbersReadPtr[71]);
+
+		std::cout << "7. float[72]: SUCCESS" << std::endl;
+
+		write$.write(numbers, 72);
+
+		char flagsData2 = read$.readFlags();
+		std::bitset<8> flags2(flagsData2);
+
+		EXPECT(!!(flagsData2 & ~kMemoryChanged));
+
+		write$.write(numbers, 72);
+
+		char flagsData3 = read$.readFlags();
+		std::bitset<8> flags3(flagsData3);
+		EXPECT(!!(flagsData3 & kMemoryChanged));
+
+		std::cout
+		<< "7.1 status bit flips to zero when writing again: SUCCESS: 0b"
+		<< flags2 << std::endl;
+
+		std::cout
+		<< "7.2 status bit flips to one when writing again: SUCCESS: 0b"
+		<< flags3 << std::endl;
+
+
+		delete[] numbersReadPtr;
+		write$.close();
+		read$.close();*/
+	}
+
+}
